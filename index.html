@@ -234,8 +234,39 @@ document.getElementById('sigFile').addEventListener('change', (e) => {
   reader.readAsDataURL(file);
 });
 
+// --- Normalizacion de texto para la fuente estandar del PDF (WinAnsi) ---
+// Algunos datos (copiados de otros sistemas) traen letras cirilicas o griegas que se ven
+// iguales a las latinas pero la fuente del PDF no puede codificar. Se convierten a su
+// equivalente latino; cualquier otro caracter no soportado se reemplaza por "?".
+const LOOKALIKES = {
+  '\u0410':'A','\u0412':'B','\u0415':'E','\u041a':'K','\u041c':'M','\u041d':'H','\u041e':'O',
+  '\u0420':'P','\u0421':'C','\u0422':'T','\u0425':'X','\u0405':'S','\u0406':'I','\u0408':'J',
+  '\u0430':'a','\u0435':'e','\u043e':'o','\u0440':'p','\u0441':'c','\u0443':'y','\u0445':'x',
+  '\u0455':'s','\u0456':'i','\u0458':'j',
+  '\u0391':'A','\u0392':'B','\u0395':'E','\u0396':'Z','\u0397':'H','\u0399':'I','\u039a':'K',
+  '\u039c':'M','\u039d':'N','\u039f':'O','\u03a1':'P','\u03a4':'T','\u03a5':'Y','\u03a7':'X',
+  '\u03bf':'o'
+};
+let sanitizeFont = null;
+let sanitizeReplacements = [];
+function sanitizeText(s) {
+  if (s === null || s === undefined) return '';
+  let out = '';
+  for (const ch of s.toString().normalize('NFC')) {
+    let c = LOOKALIKES[ch] !== undefined ? LOOKALIKES[ch] : ch;
+    if (/[\r\n\t\u00a0\u2000-\u200a\u202f]/.test(c)) c = ' ';
+    if (/[\u200b-\u200d\u2060\ufeff\u00ad]/.test(c)) c = '';
+    if (c && sanitizeFont) {
+      try { sanitizeFont.encodeText(c); }
+      catch (e) { sanitizeReplacements.push(ch); c = '?'; }
+    }
+    out += c;
+  }
+  return out;
+}
+
 function wrapTextByWidth(text, font, size, maxWidth) {
-  const words = text.split(/\s+/).filter(Boolean);
+  const words = sanitizeText(text).split(/\s+/).filter(Boolean);
   const lines = [];
   let current = "";
   for (const w of words) {
@@ -461,12 +492,14 @@ async function generatePdf() {
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    sanitizeFont = font;
+    sanitizeReplacements = [];
     const page = pdfDoc.getPages()[0];
     const H = page.getHeight();
 
     const draw = (text, x, top, size) => {
       if (!text) return;
-      page.drawText(text, { x, y: H - top, size: size || 9, font, color: rgb(0.05,0.05,0.05) });
+      page.drawText(sanitizeText(text), { x, y: H - top, size: size || 9, font, color: rgb(0.05,0.05,0.05) });
     };
     const drawX = (cx, cy) => {
       page.drawText("X", { x: cx - 3.2, y: H - cy - 3.5, size: 10, font: fontBold, color: rgb(0.05,0.05,0.05) });
@@ -565,7 +598,12 @@ async function generatePdf() {
     frame.src = url;
     frame.style.display = 'block';
 
-    statusMsg.textContent = "PDF generado y descargado correctamente.";
+    if (sanitizeReplacements.length) {
+      const uniq = Array.from(new Set(sanitizeReplacements)).join(" ");
+      statusMsg.textContent = "PDF generado. Atenci\u00f3n: " + sanitizeReplacements.length + " car\u00e1cter(es) no compatible(s) se reemplazaron por \"?\" (" + uniq + "). Revisar el texto.";
+    } else {
+      statusMsg.textContent = "PDF generado y descargado correctamente.";
+    }
     statusMsg.className = "status ok";
   } catch (err) {
     console.error(err);
