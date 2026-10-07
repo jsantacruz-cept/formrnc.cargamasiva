@@ -589,7 +589,7 @@ async function generatePdf() {
     const name = (document.getElementById('nombre').value || "formulario").trim().replace(/[^a-zA-Z0-9]+/g, "_");
     const a = document.createElement('a');
     a.href = url;
-    a.download = "psiquiatria_" + name + ".pdf";
+    a.download = "rehabilitacion_" + name + ".pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
